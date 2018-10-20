@@ -1,144 +1,92 @@
-import heapq
 import random
+import generate_training_data
 
 import numpy as np
-import xml.etree.ElementTree as ET
-import urllib.request, json
+import tensorflow as tf
+from tensorflow import keras
+import matplotlib.pyplot as plt
 
-tracks = []
-playlist = []
-min_year = 0
-max_year = 0
-min_skips = 0
-max_skips = 0
-min_plays = 0
-max_plays = 0
-genres = []
-weights = []
-biases = []
+test_ids = []
 
-def get_tracks():
-    library = ET.parse('Music.xml')
-    root = library.getroot().find('dict').find('dict')
+def plot_value_array(prediction):
+    predictions_array = prediction[1:3]
+    plt.grid(False)
+    plt.xticks(np.arange(-1, 2, step=1))
+    plt.yticks(np.arange(0, 1, step=.25))
+    thisplot = plt.bar(range(2), predictions_array, color="#777777")
+    predicted_label = np.argmax(predictions_array)
 
-    ## Gets each song
-    for child in root.findall('dict'):
-        ## Gets info on each song
-        dict = {'Track ID': None, 'Genre': None, 'Year': None, 'Play Count': 0, 'Skip Count': 0}
+    thisplot[predicted_label].set_color('blue')
+    if (predicted_label == 0):
+        thisplot[0].set_color('red')
 
-        for i in range (0, len(child)):
-            if (child[i].text == 'Track ID'):
-                dict['Track ID'] = child[i+1].text
-            if (child[i].text == 'Genre'):
-                dict['Genre'] = child[i+1].text
-            if (child[i].text == 'Year'):
-                dict['Year'] = child[i+1].text
-            if (child[i].text == 'Play Count'):
-                dict['Play Count'] = child[i+1].text
-            if (child[i].text == 'Skip Count'):
-                dict['Skip Count'] = child[i+1].text
-        if (dict['Year']):
-            tracks.append(dict)
+def show_song_info (subplot, id):
+    song_data = generate_training_data.get_song_data(id)
 
-    print('Loaded {} tracks from Music.xml' .format(len(tracks)))
+    song_name = song_data['Name']
+    if (len(song_name) > 14):
+        song_name = song_name[0:14] + "..."
 
-def get_playlist(playlist_name):
-    library = ET.parse('Library.xml')
-    root = library.getroot().find('dict').find('array')
+    plt.grid(False)
+    plt.xticks([])
+    plt.yticks([])
+    subplot.text(0.05, 0.85, song_name, fontsize=10)
+    subplot.text(0.05, 0.65, "Skips: " + str(song_data["Skip Count"]), fontsize=10)
+    subplot.text(0.05, 0.45, "Genre: " + song_data["Genre"], fontsize=10)
+    subplot.text(0.05, 0.25, "Plays: " + str(song_data["Play Count"]), fontsize=10)
+    subplot.text(0.05, 0.05, "Year: " + str(song_data["Year"]), fontsize=10)
 
-    for child in root:
-        if (child.find('string').text == playlist_name):
-            playlist_tracks = child.find('array')
-            continue
+training_data = generate_training_data.get_training_data()
+test_data = []
+for data in training_data:
+    if (data[1] == 0):
+        print ("Adding to test: ", data[1])
+        test_data.append(data)
 
-    for track in playlist_tracks.findall('dict'):
-        heapq.heappush(playlist, track.find('integer').text)
+# Holds the [year, plays, skips, genre]
+train_variables = np.array([i[0] for i in training_data])
+# Holds whether in playlist 0 or 1
+train_labels = np.array([i[1] for i in training_data])
+# Holds song id for identification
+train_ids = np.array([i[2] for i in training_data])
 
-    print('Loaded {} tracks from playlist {} using Library.xml' .format(len(playlist), playlist_name))
+# Holds the [year, plays, skips, genre]
+test_variables = np.array([i[0] for i in test_data])
+# Holds whether in playlist 0 or 1
+test_labels = np.array([i[1] for i in test_data])
+# Holds song id for identification
+test_ids = np.array([i[2] for i in test_data])
 
-def get_mins_and_maxs ():
-    global max_year
-    global min_year
-    global max_skips
-    global min_skips
-    global max_plays
-    global min_skips
+model = keras.Sequential([
+    keras.layers.Dense(4),
+    keras.layers.Dense(10, activation=tf.nn.relu),
+    keras.layers.Dense(2, activation=tf.nn.softmax)
+])
 
-    min_year = int(tracks[0]['Year'])
-    min_skips = int(tracks[0]['Skip Count'])
-    min_plays = int(tracks[0]['Play Count'])
+model.compile(optimizer=tf.train.AdamOptimizer(), loss='sparse_categorical_crossentropy', metrics=['accuracy'])
 
-    print (len(tracks))
+model.fit(train_variables, train_labels, epochs=50)
 
-    for track in tracks:
-        if (int(track['Year']) < min_year):
-            min_year = int(track['Year'])
-        if (int(track['Year']) > max_year):
-            max_year = int(track['Year'])
+# test_loss, test_acc = model.evaluate(test_variables, test_labels)
 
-        if (int(track['Play Count']) < min_plays):
-            min_plays = int(track['Play Count'])
-        if (int(track['Play Count']) > max_plays):
-            max_plays = int(track['Play Count'])
+# print('Test accuracy:', test_acc)
 
-        if (int(track['Skip Count']) < min_skips):
-            min_skips = int(track['Skip Count'])
-        if (int(track['Skip Count']) > max_skips):
-            max_skips = int(track['Skip Count'])
+predictions = model.predict(test_variables)
+sorted_predictions = []
+for i in range(len(predictions)):
+    sorted_predictions.append((test_ids[i], predictions[i][0], predictions[i][1]))
 
-def get_genres ():
-    global genres
-    with urllib.request.urlopen("http://itunes.apple.com/WebObjects/MZStoreServices.woa/ws/genres?id=34") as url:
-        data = json.loads(url.read().decode())
-        genres_dict = data['34']['subgenres']
+sorted_predictions = sorted(sorted_predictions, key=lambda value: value[1])
 
-        string_keys = genres_dict.keys()
-        for key in string_keys:
-            genres.append(genres_dict[str(key)]['name'])
-            if ('subgenres' in genres_dict[str(key)].keys()):
-                for k in genres_dict[str(key)]['subgenres'].keys():
-                    genres.append(genres_dict[str(key)]['subgenres'][str(k)]['name'])
+num_rows = 5
+num_cols = 3
+num_images = num_rows*num_cols
+plt.figure(figsize=(2*2*num_cols, 2*num_rows))
+for i in range(15):
+    plt.subplot(num_rows, 2*num_cols, 2*i+1)
+    plot_value_array(sorted_predictions[i])
+    subplot = plt.subplot(num_rows, 2*num_cols, 2*i+2)
+    show_song_info(subplot, sorted_predictions[i][0])
 
-def get_input_vector (track):
-    global min_plays, max_plays, min_skips, max_skips, min_year, max_year, genres
-    year = (int(track['Year']) - min_year) / (max_year - min_year)
-    plays = (int(track['Play Count']) - min_plays) / (max_plays - min_plays)
-    skips = (int(track['Skip Count']) - min_skips) / (max_skips - min_skips)
-    if (track['Genre'] in genres):
-        genre = genres.index(track['Genre']) / len(genres)
-    else:
-        print ('Could not find genre: ', track['Genre'])
-        ## Fixing Hip-Hop/Rap != Hip Hop/Rap
-        genre = genres.index('Hip-Hop/Rap') / len(genres)
-
-
-    return [year, plays, skips, genre]
-
-def test_inputs ():
-    for track in tracks:
-        inputs = get_input_vector(track)
-        for input in inputs:
-            if (input > 1):
-                print ('ERROR WITH INPUT ', track['Track ID'])
-
-def generate_weights_and_biases (sizes):
-    """ Sizes should be a list representing number of neurons in each layer
-        Ex: [4,3,1] """
-    biases = [np.random.randn(y, 1) for y in sizes[1:]]
-    weights = [np.random.randn(y, x)
-                    for x, y in zip(sizes[:-1], sizes[1:])]
-
-def sigmoid (z):
-    return 1.0/(1.0 + np.exmp(-z))
-
-def feedforward (a):
-    for b, w in zip(biases, weights):
-        a = sigmoid(np.dot(w, a) + b)
-    return a
-
-get_tracks()
-get_playlist('Lake')
-get_mins_and_maxs()
-get_genres()
-test_inputs()
-generate_weights_and_biases([4,3,1])
+plt.tight_layout()
+plt.show()
