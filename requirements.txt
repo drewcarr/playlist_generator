@@ -16,7 +16,7 @@ cffi==1.11.5
 cfgv==1.1.0
 chardet==3.0.4
 click==6.7
-cookiecutter==1.6.0
+cookiecutter==2.1.1
 cryptography==2.2.2
 ez-setup==0.9
 fabric==2.1.3
